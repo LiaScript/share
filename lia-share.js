@@ -30,7 +30,14 @@ if (!link.get('room') || !link.get('key')) {
 }
 
 async function start() {
-  await navigator.serviceWorker.register('lia-share-sw.js')
+  // the newest worker before the frame: an older one from the cache of the
+  // browser does not know the paths of this page and answered 404
+  const reg = await navigator.serviceWorker.register('lia-share-sw.js', { updateViaCache: 'none' })
+  await reg.update().catch(() => {})
+  const fresh = reg.installing || reg.waiting
+  if (fresh && fresh.state != 'activated') {
+    await new Promise((resolve) => fresh.addEventListener('statechange', () => fresh.state == 'activated' && resolve()))
+  }
   await navigator.serviceWorker.ready
 
   const peers = joinRoom({ appId: APP, password: link.get('key') }, link.get('room'))

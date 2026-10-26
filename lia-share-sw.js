@@ -16,8 +16,13 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url)
   if (url.origin != location.origin || !url.pathname.startsWith(BASE + '/')) return
   const tab = /^\/tab-([a-z0-9]+)(\/.*)?$/.exec(url.pathname.slice(BASE.length))
-  // the share page itself and its files
-  if (!tab) return
+  // The share page itself and its files, asked again every time: a page
+  // from the cache of the browser (GitHub Pages allows 10 minutes) did not
+  // fit a newer worker and got 404 for every path.
+  if (!tab) {
+    if (e.request.method == 'GET') e.respondWith(fetch(url.href, { cache: 'no-cache' }))
+    return
+  }
   e.respondWith(tunnel(e.request, tab[1], (tab[2] || '/') + url.search))
 })
 

@@ -10,7 +10,10 @@ addEventListener('message', function (e) {
   if (e.source == parent && e.data == 'lia-share' && e.ports[0]) up = e.ports[0]
 })
 
-navigator.serviceWorker.register('lia-share-sw.js')
+// the newest worker, see lia-share.js
+navigator.serviceWorker.register('lia-share-sw.js', { updateViaCache: 'none' }).then(function (reg) {
+  return reg.update()
+})
 navigator.serviceWorker.onmessage = function (e) {
   var port = e.ports[0]
   if (!port) return
