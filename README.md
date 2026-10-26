@@ -17,6 +17,9 @@ DevServer in a frame. The service worker `lia-share-sw.js` hands every request
 of that frame to the page, which sends it over the data channel and streams
 the answer back. `lia-share-relay.html` does the same for web pages in the
 chat, under a second origin, so that a web page never reaches the chat.
+The UI of each tab lives below `tab-<id>/`, so two logins in one browser
+(`liadev --users`) never cross: the service worker asks every share tab, and
+the one with that id answers.
 
 This is an experiment. The files are copied from `share/` of the DevServer
 repository, change them there.

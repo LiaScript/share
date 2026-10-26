@@ -13,7 +13,10 @@ const link = new URLSearchParams(location.hash.slice(1))
 const web = link.get('web') ? new URL(link.get('web')) : null
 // this page may sit in a folder (https://liascript.github.io/share/): the
 // server hands out paths below it, the service worker strips it again
-const here = new URL('.', location.href).href.replace(/\/$/, '')
+// and the UI of this tab sits below tab-<id>, apart from other tabs
+const tab = Math.random().toString(36).slice(2, 10)
+const folder = new URL('.', location.href).href.replace(/\/$/, '')
+const here = folder + '/tab-' + tab
 
 function say(text) {
   status.textContent = text
@@ -76,6 +79,8 @@ async function start() {
   // a request of a service worker, its answer goes back through port
   function forward(data, port, isWeb) {
     if (!port) return
+    // a request of another share tab
+    if (data.tab !== tab) return port.postMessage({ notMine: true })
     if (!host) return port.postMessage({ error: 'Not connected.' })
     const id = ++next
     pending.set(id, port)
@@ -83,8 +88,13 @@ async function start() {
       pending.delete(id)
       if (host) abort.send({ id }, { target: host })
     }
-    const { body, ...meta } = data
-    const m = { ...meta, id, origin: here, web: isWeb, ...(web ? { webOrigin: web.href.replace(/\/$/, '') } : {}) }
+    const { body, tab: _, ...meta } = data
+    // the login of a server with users (liadev --users), its page sets it
+    let token = null
+    try {
+      token = sessionStorage.getItem('lia-share-token')
+    } catch (e) {}
+    const m = { ...meta, id, origin: here, web: isWeb, ...(web ? { webOrigin: web.href.replace(/\/$/, '') + '/tab-' + tab } : {}), ...(token ? { token } : {}) }
     if (body) req.send(new Uint8Array(body), { target: host, metadata: m })
     else req.send(m, { target: host })
   }
@@ -93,7 +103,7 @@ async function start() {
   if (web) {
     const relay = document.createElement('iframe')
     relay.style.display = 'none'
-    relay.src = new URL('lia-share-relay.html', web).href
+    relay.src = new URL('lia-share-relay.html?tab=' + tab, web).href
     relay.onload = () => {
       const { port1, port2 } = new MessageChannel()
       port1.onmessage = ({ data, ports: [port] }) => forward(data, port, true)
