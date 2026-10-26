@@ -148,7 +148,7 @@ async function start() {
       token = sessionStorage.getItem('lia-share-token')
     } catch (e) {}
     if (debug) trace.set(id, { path: meta.path, t: Date.now(), bytes: 0, status: 0 })
-    const m = { ...meta, id, origin: here, web: isWeb, ...(web ? { webOrigin: web.href.replace(/\/$/, '') + '/tab-' + tab } : {}), ...(token ? { token } : {}) }
+    const m = { ...meta, id, origin: here, web: isWeb, ...(web ? { webOrigin: web.href.replace(/\/$/, '') + '/tab-' + tab } : {}), ...(token ? { token } : {}), gzip: typeof DecompressionStream == 'function' }
     if (body) req.send(new Uint8Array(body), { target: host, metadata: m })
     else req.send(m, { target: host })
   }
@@ -175,11 +175,13 @@ async function start() {
     }
     const port = pending.get(data?.id)
     if (!port) return
-    port.postMessage(data)
+    // the room names the cache of the worker: files of one teacher's server
+    // never answer for another
+    port.postMessage(data.status ? { ...data, room: link.get('room') } : data)
     const t = trace.get(data.id)
-    if (t && data.status) t.status = data.status
+    if (t && data.status) (t.status = data.status), (t.gzip = data.gzip)
     if (t && (data.end || data.error)) {
-      log(t.status + ' ' + t.path.slice(0, 70) + ' ' + t.bytes + ' B ' + (Date.now() - t.t) + ' ms' + (data.error ? ' ' + data.error : ''))
+      log(t.status + ' ' + t.path.slice(0, 70) + ' ' + t.bytes + ' B' + (t.gzip ? ' gz' : '') + ' ' + (Date.now() - t.t) + ' ms' + (data.error ? ' ' + data.error : ''))
       trace.delete(data.id)
     }
     if (data.end || data.error) pending.delete(data.id)

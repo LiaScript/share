@@ -9,6 +9,19 @@
 // the folder of the share page ('' at the root): the server knows no folder
 const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '')
 
+// Files with a content hash in their name never change: kept in the browser,
+// per room (a teacher's server), because the hash comes from that server and
+// a file of one server must never answer for another. The room of a tab is
+// learned from its first answer.
+// ponytail: the cache only grows, prune by room if it ever matters
+const ASSET = /\.[0-9a-f]{8}\.(js|css|woff2?|png|jpe?g|svg|wasm)$/
+const CACHE = 'lia-share-assets'
+const rooms = new Map()
+const cacheKey = (tab, path) => {
+  const room = rooms.get(tab)
+  return room && ASSET.test(path.split('?')[0]) ? location.origin + BASE + '/__lia-cache/' + room + path : null
+}
+
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()))
 
@@ -27,6 +40,11 @@ self.addEventListener('fetch', (e) => {
 })
 
 async function tunnel(request, tab, path) {
+  const cached = request.method == 'GET' && cacheKey(tab, path)
+  if (cached) {
+    const hit = await caches.match(cached)
+    if (hit) return hit
+  }
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
   // the origin of web pages has relays, the other share pages; not another
   // page of the same origin (liascript.github.io/course/ …)
@@ -65,8 +83,18 @@ async function tunnel(request, tab, path) {
         }
         owner = port1
         if (data.status) {
+          if (data.room) rooms.set(tab, data.room)
           const empty = [101, 204, 205, 304].includes(data.status) || request.method == 'HEAD'
-          resolve(new Response(empty ? null : stream, { status: data.status, headers: data.headers }))
+          // packed by the host for the way through the tunnel
+          const body = empty ? null : data.gzip ? stream.pipeThrough(new DecompressionStream('gzip')) : stream
+          const response = new Response(body, { status: data.status, headers: data.headers })
+          const key = request.method == 'GET' && data.status == 200 && cacheKey(tab, path)
+          // the copy before the browser starts to read the answer
+          if (key) {
+            const copy = response.clone()
+            caches.open(CACHE).then((c) => c.put(key, copy)).catch(() => {})
+          }
+          resolve(response)
         } else if (data.chunk) {
           out.enqueue(new Uint8Array(data.chunk))
         } else if (data.end) {
