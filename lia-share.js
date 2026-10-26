@@ -40,7 +40,15 @@ async function start() {
   }
   await navigator.serviceWorker.ready
 
-  const peers = joinRoom({ appId: APP, password: link.get('key') }, link.get('room'))
+  // TURN servers for networks without a direct way (mobile, school firewalls):
+  // ice.json is written from the secret ICE_SERVERS when this page is published
+  const ice = await fetch('ice.json', { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : []))
+    .catch(() => [])
+  const peers = joinRoom(
+    { appId: APP, password: link.get('key'), ...(Array.isArray(ice) && ice.length ? { turnConfig: ice } : {}) },
+    link.get('room'),
+  )
   const hello = peers.makeAction('hello')
   const req = peers.makeAction('req')
   const res = peers.makeAction('res')

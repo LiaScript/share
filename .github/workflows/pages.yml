@@ -1,0 +1,47 @@
+# Publishes the share page. ice.json comes from the organization secret
+# WEBRTC_ICE_SERVERS, the STUN/TURN servers of LiaScript as a JSON list of
+# RTCIceServer objects ([{"urls":"turn:…","username":"…","credential":"…"}]),
+# the same as in the LiaScript build. Without it ice.json is [] and only
+# direct connections work.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Page and ice.json
+        env:
+          ICE_SERVERS: ${{ secrets.WEBRTC_ICE_SERVERS }}
+        run: |
+          mkdir _site
+          cp index.html lia-share.js lia-share-sw.js lia-share-relay.html lia-share-relay.js _site/
+          node -e '
+            let ice = []
+            try { ice = JSON.parse(process.env.ICE_SERVERS || "[]") } catch (e) { console.log("WEBRTC_ICE_SERVERS is no JSON, publishing no TURN servers") }
+            if (!Array.isArray(ice)) ice = []
+            require("fs").writeFileSync("_site/ice.json", JSON.stringify(ice))
+            console.log(ice.length + " ICE servers")
+          '
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v5
