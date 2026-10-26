@@ -18,7 +18,44 @@ const tab = Math.random().toString(36).slice(2, 10)
 const folder = new URL('.', location.href).href.replace(/\/$/, '')
 const here = folder + '/tab-' + tab
 
+// &debug in the link: a log of every request and of every error of the
+// frames at the bottom of the page, to see on a phone what goes wrong
+const debug = link.has('debug') ? document.createElement('pre') : null
+const trace = new Map()
+if (debug) {
+  debug.style.cssText =
+    'position:fixed;left:0;right:0;bottom:0;height:35vh;margin:0;overflow:auto;z-index:9;font:11px/1.3 monospace;background:#000c;color:#0f0;padding:4px;white-space:pre-wrap'
+  document.body.append(debug)
+  addEventListener('error', (e) => log('ERR top: ' + e.message))
+  // the frames are of this origin: their errors and console.error
+  setInterval(() => {
+    const visit = (w) => {
+      for (let i = 0; i < w.frames.length; i++) {
+        try {
+          const f = w.frames[i]
+          if (!f.__liaDebug) {
+            f.__liaDebug = true
+            const where = f.location.pathname.split('/').slice(-1)[0] || '/'
+            f.addEventListener('error', (e) => log('ERR ' + where + ': ' + (e.message || e.target?.src || e.type)), true)
+            f.addEventListener('unhandledrejection', (e) => log('REJ ' + where + ': ' + (e.reason?.message || e.reason)))
+            const error = f.console.error
+            f.console.error = (...a) => (log('CON ' + where + ': ' + a.join(' ').slice(0, 300)), error.apply(f.console, a))
+          }
+          visit(f)
+        } catch (e) {}
+      }
+    }
+    visit(window)
+  }, 50)
+}
+function log(line) {
+  if (!debug) return
+  debug.textContent += new Date().toTimeString().slice(0, 8) + ' ' + line + '\n'
+  debug.scrollTop = debug.scrollHeight
+}
+
 function say(text) {
+  log(text)
   status.textContent = text
   status.hidden = false
 }
@@ -72,6 +109,7 @@ async function start() {
     // a restarted host is a new peer, the old one may not have left yet
     if (host && host != peerId) gone()
     host = peerId
+    log('host ' + peerId)
     status.hidden = true
     if (!frame) {
       frame = document.createElement('iframe')
@@ -109,6 +147,7 @@ async function start() {
     try {
       token = sessionStorage.getItem('lia-share-token')
     } catch (e) {}
+    if (debug) trace.set(id, { path: meta.path, t: Date.now(), bytes: 0, status: 0 })
     const m = { ...meta, id, origin: here, web: isWeb, ...(web ? { webOrigin: web.href.replace(/\/$/, '') + '/tab-' + tab } : {}), ...(token ? { token } : {}) }
     if (body) req.send(new Uint8Array(body), { target: host, metadata: m })
     else req.send(m, { target: host })
@@ -129,12 +168,25 @@ async function start() {
 
   res.onMessage = (data, { metadata }) => {
     if (metadata) {
+      const t = trace.get(metadata.id)
+      if (t) t.bytes += data.byteLength || data.length || 0
       pending.get(metadata.id)?.postMessage({ chunk: data })
       return
     }
     const port = pending.get(data?.id)
     if (!port) return
     port.postMessage(data)
+    const t = trace.get(data.id)
+    if (t && data.status) t.status = data.status
+    if (t && (data.end || data.error)) {
+      log(t.status + ' ' + t.path.slice(0, 70) + ' ' + t.bytes + ' B ' + (Date.now() - t.t) + ' ms' + (data.error ? ' ' + data.error : ''))
+      trace.delete(data.id)
+    }
     if (data.end || data.error) pending.delete(data.id)
   }
+  // requests that never finish, e.g. a script that stopped halfway
+  if (debug)
+    setInterval(() => {
+      for (const t of trace.values()) if (!t.warned && Date.now() - t.t > 15000 && !/gotoLine/.test(t.path)) (t.warned = true), log('… ' + t.path.slice(0, 70) + ' still open, ' + t.bytes + ' B')
+    }, 5000)
 }
