@@ -1,8 +1,10 @@
-# Publishes the share page. ice.json comes from the organization secret
-# WEBRTC_ICE_SERVERS, the STUN/TURN servers of LiaScript as a JSON list of
-# RTCIceServer objects ([{"urls":"turn:…","username":"…","credential":"…"}]),
-# the same as in the LiaScript build. Without it ice.json is [] and only
-# direct connections work.
+# Publishes the share page. ice.json and signaling.json come from the
+# organization secrets of the LiaScript build: WEBRTC_ICE_SERVERS, the
+# STUN/TURN servers as a JSON list of RTCIceServer objects
+# ([{"urls":"turn:…","username":"…","credential":"…"}]), and
+# WEBRTC_SIGNALING_SERVERS, the y-webrtc signalling servers as a JSON list of
+# URLs (["wss://…"]). Without them the lists are [] and the page falls back
+# to a public signalling server and STUN only (lia-rtc.mjs).
 name: Pages
 
 on:
@@ -27,18 +29,21 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-      - name: Page and ice.json
+      - name: Page, ice.json and signaling.json
         env:
-          ICE_SERVERS: ${{ secrets.WEBRTC_ICE_SERVERS }}
+          WEBRTC_ICE_SERVERS: ${{ secrets.WEBRTC_ICE_SERVERS }}
+          WEBRTC_SIGNALING_SERVERS: ${{ secrets.WEBRTC_SIGNALING_SERVERS }}
         run: |
           mkdir _site
-          cp index.html lia-share.js lia-share-sw.js lia-share-relay.html lia-share-relay.js _site/
+          cp index.html lia-share.js lia-share-sw.js lia-share-relay.html lia-share-relay.js lia-rtc.mjs _site/
           node -e '
-            let ice = []
-            try { ice = JSON.parse(process.env.ICE_SERVERS || "[]") } catch (e) { console.log("WEBRTC_ICE_SERVERS is no JSON, publishing no TURN servers") }
-            if (!Array.isArray(ice)) ice = []
-            require("fs").writeFileSync("_site/ice.json", JSON.stringify(ice))
-            console.log(ice.length + " ICE servers")
+            for (const [name, file] of [["WEBRTC_ICE_SERVERS", "ice.json"], ["WEBRTC_SIGNALING_SERVERS", "signaling.json"]]) {
+              let list = []
+              try { list = JSON.parse(process.env[name] || "[]") } catch (e) { console.log(name + " is no JSON, publishing none") }
+              if (!Array.isArray(list)) list = []
+              require("fs").writeFileSync("_site/" + file, JSON.stringify(list))
+              console.log(list.length + " in " + file)
+            }
           '
       - uses: actions/upload-pages-artifact@v5
         with:
